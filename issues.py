@@ -10,7 +10,11 @@ userdict = {
         # "last": "line"
 }
 
-
+trackerdict = {
+    'Bugs': '397597',
+    'Feature Requests': '397600',
+    'Patches': '397599'
+}
 #######################################################################
 
 import re
@@ -24,7 +28,8 @@ import optparse
 parser = optparse.OptionParser(usage='Usage: %prog [options] sfexport.xml repoowner/repo\n\tIf the -u option is not specified, repoowner will be used as\n\tusername.\n\tYou might want to edit %prog with a text editor and set\n\tup the userdict = {...} accordingly, for mapping user names.')
 parser.add_option('-s', '--start', dest='start_id', action='store', help='id of first issue to import; useful for aborted runs')
 parser.add_option('-u', '--user', dest='github_user')
-parser.add_option("-T", "--no-id-in-title", action="store_true", dest="no_id_in_title", help="do not append '[sf#12345]' to issue titles")
+no_id_in_title=False
+parser.add_option("-T", "--no-id-in-title", action="store_true", dest="no_id_in_title", default=False,help="do not append '[sf#12345]' to issue titles")
 opts, args = parser.parse_args()
 
 try:
@@ -55,7 +60,11 @@ import re
 
 def __rest_call_unchecked(method, request, data=None):
     global github_repo, github_user, github_password
-    url = 'https://api.github.com/repos/%s/%s' % (github_repo, request)
+    if request[0] == '/':
+        url = 'https://api.github.com%s' % (request)
+    else:
+        url = 'https://api.github.com/repos/%s/%s' % (github_repo, request)
+
     if method == 'PATCH':
         response = requests.patch(url, data=json.dumps(data), auth=(github_user, github_password))
     else:
@@ -119,7 +128,7 @@ def cleanup_message_body(body):
 
 
 def handle_tracker_item(item, issue_title_prefix, statusprintprefix):
-    global no_id_in_title
+    global no_id_in_title,github_repo
     
     if len(issue_title_prefix) > 0:
         issue_title_prefix = issue_title_prefix.strip() + " "
@@ -213,6 +222,38 @@ def handle_tracker_item(item, issue_title_prefix, statusprintprefix):
             print statusprintprefix + 'Closing...'
             rest_call('PATCH', 'issues/%s' % (number), {'state': 'closed'})
 
+    # looking for added files                                                   
+    artifact_type = item.find('field',attrs={'name':'artifact_type'}).string    
+    gist = {                                                                    
+        'make_gist': False,                                                     
+        'content': {                                                            
+            "description":"Patches for %s [#%s]" % (title,number),                                 
+            "public":True,                                                      
+            "files": {}
+        }                                                                       
+    }                                                                           
+    for history in item.find_all('history'):                                    
+        h_field_name = history.find('field',attrs={'name':'field_name'}).string 
+        h_old_value = history.find('field',attrs={'name':'old_value'}).string   
+        h_entry_date = history.find('field',attrs={'name':'entrydate'}).string  
+        h_mod_by = history.find('field',attrs={'name':'mod_by'}).string         
+                                                                                
+        if h_field_name == u'File Added':                                       
+            file_id,file_name = h_old_value.split(': ')                         
+            try:                                                                
+                f = requests.get("http://sourceforge.net/tracker/download.php",params={'group_id':'29880','atid':trackerdict[artifact_type],'file_id':file_id,'aid':item_id})
+                if not '<title>SourceForge.net: ERROR</title>' in f.text:       
+                    gist['content']['files'][file_name] = {'content': f.text}   
+                    gist['make_gist'] = True 
+            except:                                                             
+                pass                                                            
+    if gist['make_gist']:                                                       
+        print statusprintprefix + 'Creating gist: %s' % gist['content']['description']
+        gist_r = rest_call('POST','/gists',gist['content'])
+        gist_response = json.loads(gist_r.text)
+        rest_call('POST', 'issues/%s/comments' % (number), {'body': 'Added Files: '+gist_response['html_url']})
+        rest_call('POST',"/gists/%s/comments" % gist_response['id'], {'body' : "Issue: %s#%s" % (github_repo,number)})
+ 
 
 import signal
 def signal_handler(signal, frame):
@@ -275,13 +316,13 @@ def getIssueTitlePrefix(trackername):
         return prefixes[trackername]
     
     prefix = "[" + trackername + "]"
-    if not userVerify("Tracker '" + trackername + "' is unknown, "
-        + "I would use the prefix '" + prefix + "', ok?", False):
-        
-        while True:
-            prefix = userRawInput("Please enter a prefix: ")
-            if userVerify("Is prefix '" + prefix + "' ok?"):
-                break
+    #if not userVerify("Tracker '" + trackername + "' is unknown, "
+    #    + "I would use the prefix '" + prefix + "', ok?", False):
+    #    
+    #    while True:
+    #        prefix = userRawInput("Please enter a prefix: ")
+    #        if userVerify("Is prefix '" + prefix + "' ok?"):
+    #            break
     return prefix
 
 skipped_count = 0
