@@ -1,0 +1,17 @@
+userdict = {                                                                    
+        # provide your sourceforge -> github user name mappings here.           
+        # syntax:                                                               
+        # "old_sf_user": "NewGitHubUser",                                       
+        # "another": "line",                                                    
+        # "last": "line"                                                        
+}                                                                               
+                                                                                
+trackerdict = {                                                                 
+    # different trackers...
+    #
+    # 'Bugs': '397597',                                                           
+    # 'Feature Requests': '397600',                                               
+    # 'Patches': '397599'                                                         
+}                                                                               
+                                                                                
+group_id = '29880' # Your project ID on SF

@@ -2,20 +2,9 @@
 
 
 
-userdict = {
-        # provide your sourceforge -> github user name mappings here.
-        # syntax:
-        # "old_sf_user": "NewGitHubUser",
-        # "another": "line",
-        # "last": "line"
-}
-
-trackerdict = {
-    'Bugs': '397597',
-    'Feature Requests': '397600',
-    'Patches': '397599'
-}
 #######################################################################
+
+from config import *
 
 import re
 
@@ -128,7 +117,7 @@ def cleanup_message_body(body):
 
 
 def handle_tracker_item(item, issue_title_prefix, statusprintprefix):
-    global no_id_in_title,github_repo
+    global no_id_in_title,github_repo,group_id
     
     if len(issue_title_prefix) > 0:
         issue_title_prefix = issue_title_prefix.strip() + " "
@@ -238,20 +227,24 @@ def handle_tracker_item(item, issue_title_prefix, statusprintprefix):
         h_entry_date = history.find('field',attrs={'name':'entrydate'}).string  
         h_mod_by = history.find('field',attrs={'name':'mod_by'}).string         
                                                                                 
-        if h_field_name == u'File Added':                                       
-            file_id,file_name = h_old_value.split(': ')                         
-            try:                                                                
-                f = requests.get("http://sourceforge.net/tracker/download.php",params={'group_id':'29880','atid':trackerdict[artifact_type],'file_id':file_id,'aid':item_id})
-                if not '<title>SourceForge.net: ERROR</title>' in f.text:       
-                    gist['content']['files'][file_name] = {'content': f.text}   
-                    gist['make_gist'] = True 
-            except:                                                             
-                pass                                                            
+        if h_field_name == u'File Added': 
+            file_id,file_name = h_old_value.split(': ') 
+            if artifact_type in trackerdict:
+                f = requests.get("http://sourceforge.net/tracker/download.php",params={'group_id':group_id,'atid':trackerdict[artifact_type],'file_id':file_id,'aid':item_id})
+            else:
+                for k,v in trackerdict.items():
+                    f = requests.get("http://sourceforge.net/tracker/download.php",params={'group_id':group_id,'atid':v,'file_id':file_id,'aid':item_id})
+                    if not '<title>SourceForge.net: ERROR</title>' in f.text:       
+                        break
+            gist['content']['files'][file_name] = {'content': f.text}   
+            gist['make_gist'] = True 
     if gist['make_gist']:                                                       
         print statusprintprefix + 'Creating gist: %s' % gist['content']['description']
         gist_r = rest_call('POST','/gists',gist['content'])
         gist_response = json.loads(gist_r.text)
+        print statusprintprefix + 'Creating Comment with Gist URL: %s' % gist_response['html_url']
         rest_call('POST', 'issues/%s/comments' % (number), {'body': 'Added Files: '+gist_response['html_url']})
+        print statusprintprefix + 'Creating Comment in Gist with Issue URL'
         rest_call('POST',"/gists/%s/comments" % gist_response['id'], {'body' : "Issue: %s#%s" % (github_repo,number)})
  
 
